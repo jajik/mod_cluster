@@ -62,6 +62,8 @@ public class TestUtils {
             }
         });
 
+        // Add the 'default' interface to the beginning of the list, if it satisfies the tests, it will be picked
+        ifaces.add(0, NetworkInterface.getByInetAddress(InetAddress.getLocalHost()));
         NetworkInterface electedIface = ifaces.get(0);
         for (NetworkInterface iface : ifaces) {
             if (iface.supportsMulticast() && hasIPv4Address(iface.getInetAddresses())) {
