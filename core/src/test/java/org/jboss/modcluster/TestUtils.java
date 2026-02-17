@@ -65,7 +65,8 @@ public class TestUtils {
         NetworkInterface electedIface = ifaces.get(0);
         for (NetworkInterface iface : ifaces) {
             if (iface.supportsMulticast() && hasIPv4Address(iface.getInetAddresses())) {
-                if (!iface.isLoopback() && iface.isUp() && !iface.isPointToPoint()) {
+                if (!iface.isLoopback() && iface.isUp() && !iface.isPointToPoint() && !iface.isVirtual()
+                    && !iface.getName().startsWith("docker") && !iface.getName().startsWith("virbr")) {
                     electedIface = iface;
                     break;
                 }
