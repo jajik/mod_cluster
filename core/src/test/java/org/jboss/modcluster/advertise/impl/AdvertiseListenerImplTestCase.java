@@ -6,6 +6,7 @@ package org.jboss.modcluster.advertise.impl;
 
 import static org.jboss.modcluster.advertise.impl.AdvertiseListenerImpl.clearBuffer;
 import static org.jboss.modcluster.advertise.impl.AdvertiseListenerImpl.flipBuffer;
+import static org.jboss.modcluster.TestUtils.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -17,6 +18,8 @@ import java.nio.channels.DatagramChannel;
 import java.util.Date;
 import java.util.Locale;
 import java.util.concurrent.Executors;
+import java.math.BigInteger;
+import java.security.MessageDigest;
 
 import org.jboss.modcluster.TestUtils;
 import org.jboss.modcluster.advertise.AdvertiseListener;
@@ -109,6 +112,78 @@ class AdvertiseListenerImplTestCase {
             assertEquals(SERVER_PORT, socketAddress.getPort());
 
             assertFalse(this.channel.isConnected());
+
+            if (!System.getProperty("os.name").toLowerCase(Locale.ENGLISH).startsWith("mac")) {
+                listener.close();
+            } else {
+                try {
+                    listener.close();
+                } catch (IOException e) {
+                    // Workaround for https://bugs.openjdk.java.net/browse/JDK-8050499
+                    if (!"Unknown error: 316".equals(e.getMessage()))
+                        throw e;
+                }
+            }
+
+            assertFalse(this.channel.isOpen());
+        }
+    }
+
+    @Test
+    void testMissingPacketData() throws Exception {
+        // Test using a separate sendChannel to test AdvertiseListenerImpl
+        try (DatagramChannel sendChannel = new SendingDatagramChannelFactoryImpl().createDatagramChannel(new InetSocketAddress(ADVERTISE_GROUP, ADVERTISE_PORT))) {
+            // Setup ArgumentCaptor before the listener is started by AdvertiseListenerImpl constructor
+            ArgumentCaptor<InetSocketAddress> capturedAddress = ArgumentCaptor.forClass(InetSocketAddress.class);
+            when(this.channelFactory.createDatagramChannel(capturedAddress.capture())).thenReturn(this.channel);
+
+            AdvertiseListener listener = new AdvertiseListenerImpl(this.mcmpHandler, this.config, this.channelFactory);
+
+            assertEquals(ADVERTISE_GROUP, capturedAddress.getValue().getAddress().getHostAddress());
+            assertTrue(this.channel.isOpen());
+            assertTrue(sendChannel.isOpen());
+
+            ArgumentCaptor<ProxyConfiguration> capturedSocketAddress = ArgumentCaptor.forClass(ProxyConfiguration.class);
+
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            md.update(zeroMd5Sum);
+            String rfcDate = df.format(new Date());
+            digestString(md, rfcDate);
+            digestString(md, String.valueOf(0));
+            String server = SERVER1;
+            digestString(md, server);
+            BigInteger digest = new BigInteger(1, md.digest());
+
+            byte[][] badPackets = {
+                    String.format("HTTP/1.1 200 OK\r\nSequence: %d\r\nDigest: %032x\r\nServer: %s\r\nX-Manager-Address: %s\r\n", 0, digest, server, SERVER1_ADDRESS).getBytes(),
+                    String.format("HTTP/1.1 200 OK\r\nDate: %s\r\nDigest: %032x\r\nServer: %s\r\nX-Manager-Address: %s\r\n", rfcDate, digest, server, SERVER1_ADDRESS).getBytes(),
+                    String.format("HTTP/1.1 200 OK\r\nDate: %s\r\nSequence: %d\r\nServer: %s\r\nX-Manager-Address: %s\r\n", rfcDate, 0, server, SERVER1_ADDRESS).getBytes(),
+                    String.format("HTTP/1.1 200 OK\r\nDate: %s\r\nSequence: %d\r\nDigest: %032x\r\nX-Manager-Address: %s\r\n", rfcDate, 0, digest, SERVER1_ADDRESS).getBytes(),
+                    String.format("HTTP/1.1 200 OK\r\nDate: %s\r\nSequence: %d\r\nDigest: %032x\r\nServer: %s\r\n", rfcDate, 0, digest, server).getBytes()
+            };
+
+            for (int i = 0; i < badPackets.length; i++) {
+                ByteBuffer buffer = ByteBuffer.allocate(512);
+                buffer.put(badPackets[i]);
+                flipBuffer(buffer);
+
+                // Send a bad packet and verify it's rejected / does not have any effect
+                sendChannel.send(buffer, config.getAdvertiseSocketAddress());
+                verify(this.mcmpHandler, after(TIMEOUT).never()).addProxy(capturedSocketAddress.capture());
+
+                // Now send a good packet to verify the listener is still running
+                clearBuffer(buffer);
+                // To prevent conflicts between iterations, we have to have a unique address
+                server = String.format("127.0.%d.1", i);
+                String serverAddress = String.format("%s:%d", server, SERVER_PORT);
+                buffer.put(TestUtils.generateAdvertisePacketData(new Date(), 0, server, serverAddress));
+                flipBuffer(buffer);
+                sendChannel.send(buffer, config.getAdvertiseSocketAddress());
+                verify(this.mcmpHandler, timeout(TIMEOUT)).addProxy(capturedSocketAddress.capture());
+                reset(this.mcmpHandler);
+            }
+
+            assertTrue(this.channel.isOpen());
 
             if (!System.getProperty("os.name").toLowerCase(Locale.ENGLISH).startsWith("mac")) {
                 listener.close();

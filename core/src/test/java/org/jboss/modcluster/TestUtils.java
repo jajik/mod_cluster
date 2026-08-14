@@ -111,7 +111,7 @@ public class TestUtils {
      * @param md {@link MessageDigest}
      * @param s  {@link String} to update the digest with
      */
-    private static void digestString(MessageDigest md, String s) {
+    public static void digestString(MessageDigest md, String s) {
         int len = s.length();
         byte[] b = new byte[len];
         for (int i = 0; i < len; i++) {

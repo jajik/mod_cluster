@@ -150,6 +150,7 @@ public class AdvertiseListenerImpl implements AdvertiseListener {
     private boolean verifyDigest(String digest, String server, String date, String sequence) {
         // Neither side is configured to use digest -- pass verification
         if (this.md == null && digest == null) return true;
+        if (digest == null) return false;
 
         String securityKey = this.config.getAdvertiseSecurityKey();
         byte[] salt;
@@ -274,7 +275,7 @@ public class AdvertiseListenerImpl implements AdvertiseListener {
                             }
                         }
                     }
-                    if (server != null && status > 0) {
+                    if (server != null && server_name != null && date_str != null && sequence != null && status > 0) {
                         /* We need a digest to match */
                         if (!AdvertiseListenerImpl.this.verifyDigest(digest, server_name, date_str, sequence)) {
                             log.tracef("Advertise message digest verification failed for server %s", server_name);
@@ -294,6 +295,8 @@ public class AdvertiseListenerImpl implements AdvertiseListener {
                                 AdvertiseListenerImpl.this.handler.addProxy(new ProxyConfigurationImpl(proxyAddress));
                             }
                         }
+                    } else {
+                        log.tracef("Advertise message for server %s was discarded due to missing headers", server_name);
                     }
 
                     AdvertiseListenerImpl.this.listening = true;
